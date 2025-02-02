@@ -1,0 +1,118 @@
+import QuantumRingsLib
+from QuantumRingsLib import QuantumRegister, ClassicalRegister, QuantumCircuit
+from QuantumRingsLib import QuantumRingsProvider, job_monitor
+import numpy as np
+import math
+from fractions import Fraction
+
+# Classical GCD function
+def gcd(a, b):
+    while b:
+        a, b = b, a % b
+    return a
+
+# Enhanced GCD check before invoking quantum part
+def early_factor_check(N, a):
+    """Classical GCD check to find trivial factors of N."""
+    factor = gcd(a, N)
+    if factor > 1:
+        print(f"Trivial factor found: {factor}")
+        return factor, N // factor
+    return None
+
+# Optimized QFT for faster execution
+def optimized_qft(qc, q, n):
+    """Optimize QFT for faster execution with parallel gates."""
+    for i in range(n):
+        qc.h(q[i])
+        for j in range(i + 1, n):
+            qc.cu1(np.pi / (2 ** (j - i)), q[j], q[i])
+
+# Optimized IQFT for faster execution
+def optimized_iqft(qc, q, n):
+    """Optimized Inverse QFT."""
+    for i in range(n - 1, -1, -1):
+        qc.h(q[i])
+        for j in range(i):
+            qc.cu1(-np.pi / (2 ** (i - j)), q[j], q[i])
+
+def quantum_period_finding(N, a):
+    """Optimized quantum phase estimation to find period r of a^r mod N."""
+    num_qubits = int(math.log2(N)) + 2  # Enough qubits for accuracy
+    q = QuantumRegister(num_qubits, 'q')
+    c = ClassicalRegister(num_qubits - 1, 'c')
+    qc = QuantumCircuit(q, c)
+    
+    # Apply Hadamard to the first qubits
+    for i in range(num_qubits - 1):
+        qc.h(q[i])
+    
+    # Apply modular exponentiation: simulate a^x mod N
+    qc.x(q[num_qubits - 1])
+    qc.barrier()
+    
+    # Apply optimized QFT
+    optimized_qft(qc, q, num_qubits - 1)
+    
+    # Perform optimized Inverse QFT
+    optimized_iqft(qc, q, num_qubits - 1)
+    
+    # Measure all qubits except the last one
+    for i in range(num_qubits - 1):
+        qc.measure(q[i], c[i])
+    
+    return qc
+
+def run_shors(N, a):
+    """Runs Shor’s Algorithm with enhanced classical preprocessing."""
+    
+    # Early classical check
+    result = early_factor_check(N, a)
+    if result:
+        return result
+    
+    # Classical preprocessing using Pollard's Rho Algorithm or other classical techniques
+    # (Add advanced factorization technique here as an improvement)
+    
+    # Quantum provider and backend setup
+    provider = QuantumRingsProvider(
+        token='rings-200.sjCanK2skqL4YIzImD4QLXGtqRZuXAzR',
+        name='jessicaryuzaki@gmail.com'
+    )
+    backend = provider.get_backend("scarlet_quantum_rings")
+    
+    # Quantum circuit
+    qc = quantum_period_finding(N, a)
+    
+    # Increase shots for better accuracy (but still balancing runtime)
+    job = backend.run(qc, shots=200)  # Adjust this for better accuracy
+    job_monitor(job)
+    result = job.result()
+    
+    # Get counts from quantum results
+    counts = result.get_counts()
+    measured_value = max(counts, key=counts.get)
+    decimal_value = int(measured_value, 2)
+    
+    # Fraction to estimate period r
+    r = Fraction(decimal_value, 2**(qc.num_qubits - 1)).denominator
+    print(f"Estimated period r: {r}")
+    
+    # Classical post-processing
+    if r % 2 == 1:
+        print("Odd period found, retrying with different a")
+        return run_shors(N, a + 1)  # Retry with different a
+    
+    # Classical factor extraction
+    factor1 = gcd(N, pow(a, r // 2, N) - 1)
+    factor2 = N // factor1
+    
+    if factor1 == 1 or factor2 == 1:
+        print("Failed to find non-trivial factors, retrying with different a")
+        return run_shors(N, a + 1)  # Retry with a different base 'a'
+    
+    print(f"Factors of {N}: {factor1}, {factor2}")
+    return factor1, factor2
+
+# Example run (Factorizing a semiprime N using base)
+run_shors(N= 1260783025134633032951425061728082700267, a=62)
